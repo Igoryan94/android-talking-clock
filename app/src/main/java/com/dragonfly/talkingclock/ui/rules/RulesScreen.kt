@@ -14,11 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -54,13 +57,27 @@ import java.util.Locale
 
 private fun minuteToText(m: Int): String = "%02d:%02d".format(Locale.ROOT, m / 60, m % 60)
 
-private fun intervalText(minutes: Int): String = when {
-    minutes % 60 == 0 && minutes / 60 > 1 -> "каждые ${minutes / 60} часов"
-    minutes % 60 == 0 && minutes / 60 == 1 -> "каждый час"
-    minutes % 30 == 0 -> "каждые полчаса"
-    minutes == 1 -> "каждую минуту"
-    minutes % 10 == 1 && minutes % 100 != 11 -> "каждую $minutes минут"
-    else -> "каждые $minutes минут"
+private fun plural(n: Int, one: String, few: String, many: String): String {
+    val mod100 = n % 100
+    val mod10 = n % 10
+    return when {
+        mod10 == 1 && mod100 != 11 -> one
+        mod10 in 2..4 && mod100 !in 12..14 -> few
+        else -> many
+    }
+}
+
+private fun intervalText(minutes: Int): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return when {
+        h == 1 && m == 0 -> "каждый час"
+        h > 1 && m == 0 -> "каждые $h ${plural(h, "час", "часа", "часов")}"
+        h == 0 && m == 30 -> "каждые полчаса"
+        h == 0 && m == 15 -> "каждые четверть часа"
+        h == 0 -> "кажд${plural(m, "ую", "ые", "ые")} $m ${plural(m, "минуту", "минуты", "минут")}"
+        else -> "каждые $h ч $m ${plural(m, "мин", "мин", "мин")}"
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -229,12 +246,15 @@ private fun FallbackCard(fallback: FallbackConfig, onChange: (FallbackConfig) ->
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun IntervalChips(current: Int, onSelect: (Int) -> Unit) {
+    var showCustom by remember { mutableStateOf(false) }
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        listOf(1, 2, 5, 10, 15, 30, 60).forEach { minutes ->
+        val presets = listOf(1, 2, 5, 10, 15, 30, 60)
+        val values = if (current in presets) presets else presets + current
+        values.forEach { minutes ->
             AssistChip(
                 onClick = { onSelect(minutes) },
                 label = { Text(intervalText(minutes)) },
@@ -243,7 +263,49 @@ private fun IntervalChips(current: Int, onSelect: (Int) -> Unit) {
                 } else null,
             )
         }
+        AssistChip(
+            onClick = { showCustom = true },
+            label = { Text("Своё…") },
+            leadingIcon = { Icon(Icons.Filled.Tune, contentDescription = null, Modifier.size(16.dp)) },
+        )
     }
+    if (showCustom) {
+        CustomIntervalDialog(
+            initial = current,
+            onDismiss = { showCustom = false },
+            onConfirm = {
+                onSelect(it)
+                showCustom = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun CustomIntervalDialog(initial: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
+    var text by remember { mutableStateOf(initial.toString()) }
+    val parsed = text.toIntOrNull()
+    val valid = parsed != null && parsed in 1..1440
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Свой интервал") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it.filter { c -> c.isDigit() }.take(4) },
+                label = { Text("Интервал, минут") },
+                supportingText = {
+                    Text(if (valid) intervalText(parsed!!) else "число от 1 до 1440")
+                },
+                isError = !valid,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onConfirm(parsed!!) }) { Text("OK") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -258,15 +320,20 @@ private fun RuleEditorDialog(
     var pickStart by remember { mutableStateOf(false) }
     var pickEnd by remember { mutableStateOf(false) }
     var intervalTextValue by remember { mutableStateOf(rule.intervalMinutes.toString()) }
-    val interval = intervalTextValue.toIntOrNull()?.coerceAtLeast(1) ?: rule.intervalMinutes
+    val parsedInterval = intervalTextValue.toIntOrNull()
+    val intervalValid = parsedInterval != null && parsedInterval in 1..1440
+    val interval = if (intervalValid) parsedInterval!! else rule.intervalMinutes
 
-    fun current(): ScheduleRule = rule.copy(intervalMinutes = interval)
+    fun current(): ScheduleRule = rule.copy(intervalMinutes = interval.coerceIn(1, 1440))
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (onDelete == null) "Новое правило" else "Правило озвучки") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 Box(Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = minuteToText(rule.startMinuteOfDay),
@@ -301,11 +368,26 @@ private fun RuleEditorDialog(
                 }
                 OutlinedTextField(
                     value = intervalTextValue,
-                    onValueChange = { intervalTextValue = it.filter { c -> c.isDigit() } },
+                    onValueChange = { intervalTextValue = it.filter { c -> c.isDigit() }.take(4) },
                     label = { Text("Интервал, минут") },
-                    supportingText = { Text(if (rule.silent) "не используется" else intervalText(interval)) },
+                    supportingText = {
+                        Text(
+                            when {
+                                rule.silent -> "не используется"
+                                intervalValid -> intervalText(interval)
+                                else -> "число от 1 до 1440"
+                            }
+                        )
+                    },
+                    isError = !rule.silent && !intervalValid,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (!rule.silent) {
+                    IntervalChips(
+                        current = interval,
+                        onSelect = { intervalTextValue = it.toString() },
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -324,7 +406,10 @@ private fun RuleEditorDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(current()) }) { Text("Сохранить") }
+            Button(
+                enabled = rule.silent || intervalValid,
+                onClick = { onSave(current()) },
+            ) { Text("Сохранить") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Отмена") }
