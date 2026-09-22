@@ -13,6 +13,7 @@
 
 ## Running And Logs
 - Устройство: Realme/ColorOS, adb wireless `10.45.227.133:5555` (если пусто — скрипт `C:\Users\Igor\Desktop\ADB-connect.ps1`).
+- UI-верификация без рук: `adb shell uiautomator dump /sdcard/wd.xml` + `exec-out cat` в файл, читать файл ОБЯЗАТЕЛЬНО как UTF-8 ([IO.File]::ReadAllText(path, UTF8)) — консольный конвейер PS 5.1 портит кириллицу (cp866), поиск по тексту дампа молча фейлится; тапы — `input tap x y` (скрипт-хелпер: `C:\Users\Igor\AppData\Local\Temp\opencode\tap.ps1`).
 - Сборка+деплой+запуск: `cmd /c "gradlew.bat assembleDebug --console=plain"` → `adb -s <dev> install -r app\build\outputs\apk\debug\app-debug.apk` → `adb -s <dev> shell am start -n com.dragonfly.talkingclock/.MainActivity`.
 - Тесты: `cmd /c "gradlew.bat testDebugUnitTest --console=plain"`.
 - Диагностика рантайма: `adb -s <dev> shell "run-as com.dragonfly.talkingclock cat files/diag.log"`.
