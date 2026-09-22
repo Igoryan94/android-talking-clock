@@ -10,6 +10,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -19,6 +20,7 @@ class RulesViewModel @Inject constructor(
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings?> = repository.settings
+        .map { s -> s.copy(rules = s.rules.sortedBy { it.startMinuteOfDay }) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun saveRule(rule: ScheduleRule) {
@@ -26,7 +28,7 @@ class RulesViewModel @Inject constructor(
             repository.update { s ->
                 val exists = s.rules.any { it.id == rule.id }
                 val rules = if (exists) s.rules.map { if (it.id == rule.id) rule else it } else s.rules + rule
-                s.copy(rules = rules)
+                s.copy(rules = rules.sortedBy { it.startMinuteOfDay })
             }
         }
     }
