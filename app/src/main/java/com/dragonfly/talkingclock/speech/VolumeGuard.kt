@@ -83,17 +83,35 @@ class VolumeGuard(
     }
 
     /** Restores previously raised streams to their original indices; runs even if cancelled. */
-    private suspend fun restore(changed: List<Pair<Int, Int>>) {
-        withContext(NonCancellable + Dispatchers.Main) {
-            for ((stream, original) in changed) {
-                audioManager.setStreamVolume(stream, original, 0)
-                val actual = audioManager.getStreamVolume(stream)
-                if (actual != original) {
-                    diag.log(TAG, "${name(stream)} restore to $original NOT applied (still $actual)")
+    private suspend fun restore(changed: List<Pair<Int, Int>>) = withContext(NonCancellable) {
+        for ((stream, original) in changed) {
+            var applied = false
+            for (attempt in 0 until SET_ATTEMPTS) {
+                applied = withContext(Dispatchers.Main) {
+                    audioManager.setStreamVolume(stream, original, 0)
+                    audioManager.getStreamVolume(stream) == original
                 }
+                if (applied) break
+                if (attempt < SET_ATTEMPTS - 1) delay(RETRY_DELAY_MILLIS)
             }
-            diag.log(TAG, "volume guard restored ${changed.map { name(it.first) }}")
+            if (!applied) {
+                // Mirrors the raise: setStreamVolume is ignored on some ROMs, step down like keys.
+                var current = readVolume(stream)
+                var steps = 0
+                while (current > original && steps < MAX_ADJUST_STEPS) {
+                    val next = withContext(Dispatchers.Main) {
+                        audioManager.adjustStreamVolume(stream, AudioManager.ADJUST_LOWER, 0)
+                        audioManager.getStreamVolume(stream)
+                    }
+                    if (next >= current) break
+                    current = next
+                    steps++
+                }
+                applied = current <= original
+            }
+            if (!applied) diag.log(TAG, "${name(stream)} restore to $original NOT applied (still ${readVolume(stream)})")
         }
+        diag.log(TAG, "volume guard restored ${changed.map { name(it.first) }}")
     }
 
     private suspend fun setStreamVolume(stream: Int, target: Int): Boolean =
