@@ -37,6 +37,10 @@ class SettingsRepository @Inject constructor(
         val FB_SILENT = booleanPreferencesKey("fallback_silent")
         val FB_INTERVAL = intPreferencesKey("fallback_interval")
         val MISSED_ANNOUNCE = booleanPreferencesKey("missed_announce")
+        val GUARD_ENABLED = booleanPreferencesKey("volume_guard_enabled")
+        val GUARD_THRESHOLD = intPreferencesKey("volume_guard_threshold")
+        val GUARD_DURATION = intPreferencesKey("volume_guard_duration")
+        val GUARD_ARMED = longPreferencesKey("volume_guard_armed_at")
         val PENDING = longPreferencesKey("pending_trigger")
         val TRIGGERED = longPreferencesKey("last_triggered")
     }
@@ -88,6 +92,12 @@ class SettingsRepository @Inject constructor(
             intervalMinutes = (prefs[Keys.FB_INTERVAL] ?: 5).coerceIn(1, 24 * 60),
         ),
         announceMissed = prefs[Keys.MISSED_ANNOUNCE] ?: true,
+        volumeGuard = VolumeGuardConfig(
+            enabled = prefs[Keys.GUARD_ENABLED] ?: false,
+            thresholdPercent = (prefs[Keys.GUARD_THRESHOLD] ?: 30).coerceIn(0, 100),
+            durationMinutes = (prefs[Keys.GUARD_DURATION] ?: 180).coerceIn(1, 24 * 60),
+            armedAtEpochMinute = prefs[Keys.GUARD_ARMED] ?: 0L,
+        ),
     )
 
     private fun write(s: AppSettings, prefs: androidx.datastore.preferences.core.MutablePreferences) {
@@ -104,5 +114,9 @@ class SettingsRepository @Inject constructor(
         prefs[Keys.FB_SILENT] = s.fallback.silent
         prefs[Keys.FB_INTERVAL] = s.fallback.intervalMinutes
         prefs[Keys.MISSED_ANNOUNCE] = s.announceMissed
+        prefs[Keys.GUARD_ENABLED] = s.volumeGuard.enabled
+        prefs[Keys.GUARD_THRESHOLD] = s.volumeGuard.thresholdPercent
+        prefs[Keys.GUARD_DURATION] = s.volumeGuard.durationMinutes
+        prefs[Keys.GUARD_ARMED] = s.volumeGuard.armedAtEpochMinute
     }
 }

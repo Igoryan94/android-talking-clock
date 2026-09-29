@@ -57,7 +57,7 @@ class SpeakService : Service() {
                     SpeechComposer.compose(time, settings.tts)
                 }
                 if (toSpeak.isNotBlank()) {
-                    val ok = ttsManager.speak(toSpeak, settings.tts)
+                    val ok = ttsManager.speak(toSpeak, settings.tts, settings.volumeGuard)
                     diag.log(TAG, "speak result ok=$ok")
                 } else {
                     diag.log(TAG, "nothing to speak (empty text)")

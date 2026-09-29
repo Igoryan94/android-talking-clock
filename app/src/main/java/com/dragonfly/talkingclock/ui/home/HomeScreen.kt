@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,7 +36,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dragonfly.talkingclock.data.FallbackConfig
 import com.dragonfly.talkingclock.domain.ScheduleEvaluator
+import com.dragonfly.talkingclock.ui.common.intervalText
+import com.dragonfly.talkingclock.ui.common.ruleTimeRangeText
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -47,6 +51,7 @@ fun HomeScreen(
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val nextSpeak by viewModel.nextSpeak.collectAsStateWithLifecycle()
+    val activeCoverage by viewModel.activeCoverage.collectAsStateWithLifecycle()
     var showExactDialog by remember { mutableStateOf(false) }
 
     val s = settings
@@ -62,6 +67,8 @@ fun HomeScreen(
             MasterCard(
                 enabled = s.masterEnabled,
                 nextSpeak = nextSpeak,
+                fallback = s.fallback,
+                active = activeCoverage,
                 onToggle = viewModel::setMasterEnabled,
             )
 
@@ -113,6 +120,8 @@ fun HomeScreen(
 private fun MasterCard(
     enabled: Boolean,
     nextSpeak: ScheduleEvaluator.NextSpeak?,
+    fallback: FallbackConfig,
+    active: ScheduleEvaluator.ActiveCoverage?,
     onToggle: (Boolean) -> Unit,
 ) {
     Card(
@@ -156,13 +165,41 @@ private fun MasterCard(
                             .atZone(ZoneId.systemDefault())
                         val formatter = DateTimeFormatter.ofPattern("HH:mm")
                         "Следующая озвучка: ${formatter.format(time)}" +
-                            (if (it.isFallback) " (базовый интервал)" else "")
+                            (if (it.isFallback) " (вне правил)" else "")
                     } ?: "Расписание не охватывает будущее время"
                     Text(
                         text,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
+                }
+
+                active?.let { coverage ->
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        val text = when {
+                            coverage.rule != null && !coverage.rule.silent ->
+                                "Сейчас: правило ${ruleTimeRangeText(coverage.rule)} · ${intervalText(coverage.rule.intervalMinutes)}"
+                            coverage.rule != null ->
+                                "Сейчас: молчание ${ruleTimeRangeText(coverage.rule)}"
+                            coverage.isFallback && fallback.silent ->
+                                "Сейчас: вне правил · молчание"
+                            coverage.isFallback ->
+                                "Сейчас: вне правил · ${intervalText(fallback.intervalMinutes)}"
+                            else -> ""
+                        }
+                        Text(
+                            text,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
                 }
             }
         }

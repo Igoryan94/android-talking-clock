@@ -78,7 +78,7 @@ class KeepAliveWorker @AssistedInject constructor(
         }
         if (!started) {
             // FGS start is restricted from the background on Android 12+; speak directly.
-            runCatching { ttsManager.speak(apology, settings.tts) }
+            runCatching { ttsManager.speak(apology, settings.tts, settings.volumeGuard) }
                 .onFailure { diag.log(TAG, "in-process apology failed: ${it.message}") }
         }
     }

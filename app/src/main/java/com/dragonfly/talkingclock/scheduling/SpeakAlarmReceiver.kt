@@ -25,7 +25,24 @@ class SpeakAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val expectedMinute = intent.getLongExtra(EXTRA_EPOCH_MINUTE, -1L)
-        diag.log(TAG, "alarm fired, expected epochMinute=$expectedMinute")
+        val ruleId = intent.getLongExtra(EXTRA_RULE_ID, -1L)
+
+        if (intent.getBooleanExtra(EXTRA_CLEANUP_ONLY, false)) {
+            diag.log(TAG, "one-shot cleanup alarm fired, epochMinute=$expectedMinute")
+            val pendingResult = goAsync()
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            scope.launch {
+                try {
+                    // reschedule() prunes spent one-shot rules and re-arms the next speak trigger.
+                    alarmScheduler.reschedule()
+                } finally {
+                    pendingResult.finish()
+                }
+            }
+            return
+        }
+
+        diag.log(TAG, "alarm fired, expected epochMinute=$expectedMinute ruleId=$ruleId")
 
         val pendingResult = goAsync()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -64,6 +81,8 @@ class SpeakAlarmReceiver : BroadcastReceiver() {
 
     companion object {
         const val EXTRA_EPOCH_MINUTE = "epoch_minute"
+        const val EXTRA_RULE_ID = "rule_id"
+        const val EXTRA_CLEANUP_ONLY = "cleanup_only"
         private const val TAG = "SpeakAlarmReceiver"
         private const val MAX_LATE_MINUTES = 2L
     }

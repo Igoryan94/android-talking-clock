@@ -8,13 +8,16 @@ internal fun serializeRules(rules: List<ScheduleRule>): String {
     val arr = JSONArray()
     for (r in rules) {
         arr.put(
-            JSONObject()
-                .put("id", r.id)
-                .put("enabled", r.enabled)
-                .put("start", r.startMinuteOfDay)
-                .put("end", r.endMinuteOfDay)
-                .put("interval", r.intervalMinutes)
-                .put("silent", r.silent)
+            JSONObject().apply {
+                put("id", r.id)
+                put("enabled", r.enabled)
+                put("start", r.startMinuteOfDay)
+                put("end", r.endMinuteOfDay)
+                put("interval", r.intervalMinutes)
+                put("silent", r.silent)
+                put("oneShot", r.oneShot)
+                if (r.oneShotAnchorMinute > 0L) put("oneShotAnchor", r.oneShotAnchorMinute)
+            }
         )
     }
     return arr.toString()
@@ -32,6 +35,9 @@ internal fun parseRules(json: String): List<ScheduleRule> = runCatching {
             endMinuteOfDay = o.getInt("end"),
             intervalMinutes = o.optInt("interval", 5).coerceIn(1, 24 * 60),
             silent = o.optBoolean("silent", false),
+            // Legacy rules stored before the one-shot feature must keep repeating forever.
+            oneShot = o.optBoolean("oneShot", false),
+            oneShotAnchorMinute = o.optLong("oneShotAnchor", 0L),
         )
     }
 }.getOrDefault(emptyList())

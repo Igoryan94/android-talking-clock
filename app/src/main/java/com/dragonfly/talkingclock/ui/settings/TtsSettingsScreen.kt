@@ -31,10 +31,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -148,21 +150,21 @@ fun TtsSettingsScreen(viewModel: TtsSettingsViewModel = hiltViewModel()) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Формирование фразы", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = tts.prefix,
-                    onValueChange = { v -> viewModel.updateTts { it.copy(prefix = v) } },
+                PersistedTextField(
+                    persistedValue = tts.prefix,
+                    onPersist = { v -> viewModel.updateTts { it.copy(prefix = v) } },
                     label = { Text("Префикс (до времени)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = tts.postfix,
-                    onValueChange = { v -> viewModel.updateTts { it.copy(postfix = v) } },
+                PersistedTextField(
+                    persistedValue = tts.postfix,
+                    onPersist = { v -> viewModel.updateTts { it.copy(postfix = v) } },
                     label = { Text("Постфикс (после времени)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = tts.timeTemplate,
-                    onValueChange = { v -> viewModel.updateTts { it.copy(timeTemplate = v) } },
+                PersistedTextField(
+                    persistedValue = tts.timeTemplate,
+                    onPersist = { v -> viewModel.updateTts { it.copy(timeTemplate = v) } },
                     label = { Text("Шаблон времени") },
                     supportingText = { Text("Токены: H — час, HH — час с нулём, h/hh — 12ч, m — минута, mm — с нулём") },
                     modifier = Modifier.fillMaxWidth(),
@@ -182,15 +184,15 @@ fun TtsSettingsScreen(viewModel: TtsSettingsViewModel = hiltViewModel()) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Regex-обработка (опционально)", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = tts.regexPattern,
-                    onValueChange = { v -> viewModel.updateTts { it.copy(regexPattern = v) } },
+                PersistedTextField(
+                    persistedValue = tts.regexPattern,
+                    onPersist = { v -> viewModel.updateTts { it.copy(regexPattern = v) } },
                     label = { Text("Регулярное выражение") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = tts.regexReplacement,
-                    onValueChange = { v -> viewModel.updateTts { it.copy(regexReplacement = v) } },
+                PersistedTextField(
+                    persistedValue = tts.regexReplacement,
+                    onPersist = { v -> viewModel.updateTts { it.copy(regexReplacement = v) } },
                     label = { Text("Замена ($1 — группа)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -208,8 +210,73 @@ fun TtsSettingsScreen(viewModel: TtsSettingsViewModel = hiltViewModel()) {
         // Missed announcements
         MissedAnnounceSwitch(viewModel)
 
+        // Temporary forced minimum volume
+        VolumeGuardCard(viewModel)
+
         Spacer(Modifier.size(48.dp))
     }
+}
+
+@Composable
+private fun VolumeGuardCard(viewModel: TtsSettingsViewModel) {
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val s = settings ?: return
+    val guard = s.volumeGuard
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Принудительный порог громкости", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Временно поднимает громкость медиа и уведомлений ниже порога на время озвучки",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = guard.enabled, onCheckedChange = viewModel::setVolumeGuardEnabled)
+            }
+            if (guard.enabled) {
+                Text("Порог громкости: ${guard.thresholdPercent}%", style = MaterialTheme.typography.bodyMedium)
+                Slider(
+                    value = guard.thresholdPercent.toFloat(),
+                    onValueChange = { v -> viewModel.setVolumeGuardThreshold(v.toInt()) },
+                    valueRange = 0f..100f,
+                    steps = 19,
+                )
+                val hours = guard.durationMinutes / 60
+                Text("Срок действия: ${hours} ч", style = MaterialTheme.typography.bodyMedium)
+                Slider(
+                    value = hours.toFloat(),
+                    onValueChange = { v -> viewModel.setVolumeGuardDuration(v.toInt() * 60) },
+                    valueRange = 1f..24f,
+                    steps = 22,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersistedTextField(
+    persistedValue: String,
+    onPersist: (String) -> Unit,
+    label: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    supportingText: (@Composable () -> Unit)? = null,
+) {
+    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(persistedValue))
+    }
+    OutlinedTextField(
+        value = field,
+        onValueChange = { field = it; onPersist(it.text) },
+        label = label,
+        supportingText = supportingText,
+        modifier = modifier,
+    )
 }
 
 @Composable

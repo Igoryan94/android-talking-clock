@@ -49,6 +49,31 @@ class TtsSettingsViewModel @Inject constructor(
         }
     }
 
+    fun setVolumeGuardEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.update { s ->
+                val next = if (enabled) {
+                    s.volumeGuard.copy(enabled = true, armedAtEpochMinute = System.currentTimeMillis() / 60_000L)
+                } else {
+                    s.volumeGuard.copy(enabled = false, armedAtEpochMinute = 0L)
+                }
+                s.copy(volumeGuard = next)
+            }
+        }
+    }
+
+    fun setVolumeGuardThreshold(percent: Int) {
+        viewModelScope.launch {
+            repository.update { s -> s.copy(volumeGuard = s.volumeGuard.copy(thresholdPercent = percent.coerceIn(0, 100))) }
+        }
+    }
+
+    fun setVolumeGuardDuration(minutes: Int) {
+        viewModelScope.launch {
+            repository.update { s -> s.copy(volumeGuard = s.volumeGuard.copy(durationMinutes = minutes.coerceIn(1, 24 * 60))) }
+        }
+    }
+
     fun previewText(settings: TtsSettings): String =
         SpeechComposer.preview(LocalTime.now(), settings)
 
@@ -60,7 +85,7 @@ class TtsSettingsViewModel @Inject constructor(
             try {
                 val s = repository.currentSettings()
                 val text = SpeechComposer.compose(LocalTime.now(), s.tts)
-                ttsManager.speak(text, s.tts)
+                ttsManager.speak(text, s.tts, s.volumeGuard)
             } finally {
                 isSpeaking.value = false
             }

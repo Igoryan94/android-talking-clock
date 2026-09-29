@@ -42,6 +42,12 @@ class HomeViewModel @Inject constructor(
         s?.takeIf { it.masterEnabled }?.let { computeNext(it) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val activeCoverage: StateFlow<ScheduleEvaluator.ActiveCoverage?> = combine(settings, ticker) { s, _ ->
+        s?.takeIf { it.masterEnabled }?.let {
+            ScheduleEvaluator.activeRuleAt(System.currentTimeMillis() / 60_000L, it.rules)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val exactAlarmGranted: Boolean get() = alarmScheduler.canScheduleExact()
 
     fun setMasterEnabled(enabled: Boolean) {

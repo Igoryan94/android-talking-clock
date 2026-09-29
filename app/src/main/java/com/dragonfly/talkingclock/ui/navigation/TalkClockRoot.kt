@@ -1,5 +1,6 @@
 package com.dragonfly.talkingclock.ui.navigation
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Rule
@@ -14,6 +15,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -23,6 +27,7 @@ import androidx.navigation.compose.rememberNavController
 import com.dragonfly.talkingclock.ui.home.HomeScreen
 import com.dragonfly.talkingclock.ui.rules.RulesScreen
 import com.dragonfly.talkingclock.ui.settings.TtsSettingsScreen
+import kotlin.math.abs
 
 private data class TopDestination(val route: String, val label: String, val icon: ImageVector)
 
@@ -41,11 +46,31 @@ private fun NavHostController.navigateToTopDestination(route: String) {
     }
 }
 
+private fun Modifier.tabSwipeNavigation(
+    thresholdPx: Float,
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit,
+): Modifier = pointerInput(Unit) {
+    var total = 0f
+    detectHorizontalDragGestures(
+        onHorizontalDrag = { _, amount -> total += amount },
+        onDragEnd = {
+            if (abs(total) >= thresholdPx) {
+                if (total < 0) onSwipeLeft() else onSwipeRight()
+            }
+            total = 0f
+        },
+        onDragCancel = { total = 0f },
+    )
+}
+
 @Composable
 fun TalkClockRoot() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val currentIndex = destinations.indexOfFirst { it.route == currentRoute }
+    val thresholdPx = with(LocalDensity.current) { 60.dp.toPx() }
 
     Scaffold(
         bottomBar = {
@@ -64,7 +89,21 @@ fun TalkClockRoot() {
         NavHost(
             navController = navController,
             startDestination = "home",
-            modifier = Modifier.padding(padding),
+            modifier = Modifier
+                .padding(padding)
+                .tabSwipeNavigation(
+                    thresholdPx = thresholdPx,
+                    onSwipeLeft = {
+                        destinations.getOrNull(currentIndex + 1)?.let { dest ->
+                            navController.navigateToTopDestination(dest.route)
+                        }
+                    },
+                    onSwipeRight = {
+                        destinations.getOrNull(currentIndex - 1)?.let { dest ->
+                            navController.navigateToTopDestination(dest.route)
+                        }
+                    },
+                ),
         ) {
             composable("home") {
                 HomeScreen(onOpenRules = { navController.navigateToTopDestination("rules") })

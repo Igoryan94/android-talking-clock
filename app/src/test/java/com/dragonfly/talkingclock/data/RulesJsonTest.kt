@@ -26,13 +26,16 @@ class RulesJsonTest {
 
         assertEquals(30, rules[1].startMinuteOfDay)
         assertEquals(true, rules[1].silent)
+        // Legacy rules stored without the oneShot field keep repeating forever.
+        assertEquals(false, rules[0].oneShot)
+        assertEquals(false, rules[1].oneShot)
     }
 
     @Test
     fun `serialize-then-parse round trip preserves rules`() {
         val original = listOf(
-            ScheduleRule(id = 1, enabled = true, startMinuteOfDay = 550, endMinuteOfDay = 560, intervalMinutes = 4, silent = false),
-            ScheduleRule(id = 2, enabled = false, startMinuteOfDay = 30, endMinuteOfDay = 560, intervalMinutes = 10, silent = true),
+            ScheduleRule(id = 1, enabled = true, startMinuteOfDay = 550, endMinuteOfDay = 560, intervalMinutes = 4, silent = false, oneShot = true),
+            ScheduleRule(id = 2, enabled = false, startMinuteOfDay = 30, endMinuteOfDay = 560, intervalMinutes = 10, silent = true, oneShot = false),
         )
         assertEquals(original, parseRules(serializeRules(original)))
     }
@@ -40,5 +43,19 @@ class RulesJsonTest {
     @Test
     fun `malformed json yields empty rules`() {
         assertEquals(emptyList<ScheduleRule>(), parseRules("not json"))
+    }
+
+    @Test
+    fun `one-shot anchor round trips and legacy parses as zero`() {
+        val original = listOf(
+            ScheduleRule(id = 3, startMinuteOfDay = 100, endMinuteOfDay = 200, oneShot = true, oneShotAnchorMinute = 12345L),
+            ScheduleRule(id = 4, startMinuteOfDay = 300, endMinuteOfDay = 400, oneShot = false, oneShotAnchorMinute = 0L),
+        )
+        assertEquals(original, parseRules(serializeRules(original)))
+
+        val legacy = parseRules(
+            "[{\"id\":5,\"enabled\":true,\"start\":100,\"end\":200,\"interval\":5,\"silent\":false,\"oneShot\":true}]"
+        )
+        assertEquals(0L, legacy[0].oneShotAnchorMinute)
     }
 }
