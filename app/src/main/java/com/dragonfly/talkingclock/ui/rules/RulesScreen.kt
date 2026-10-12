@@ -347,6 +347,10 @@ fun RulesScreen(
                             },
                             onRename = { renamingGroup = group },
                             onDelete = { deletingGroup = group },
+                            onEnableAll = { viewModel.setGroupRulesEnabled(group.id, true) },
+                            onDisableAll = { viewModel.setGroupRulesEnabled(group.id, false) },
+                            canEnable = groupRules.any { !it.enabled },
+                            canDisable = groupRules.any { it.enabled },
                         )
                     }
                     if (expanded) {
@@ -648,6 +652,10 @@ private fun CoverageTimeline(
  * - Тап по всей карточке переключает раскрытость: открыта максимум одна группа, остальные
  *   закрываются (логика в RulesScreen через expandedGroupId); свернутые группы скрывают свои
  *   правила (по требованию «по дефолту скрыты»).
+ * - «Стандартная» (isStandard) — неудаляемая и непереименовываемая: меню показывает
+ *   «Добавить правило сюда», «Выключить все», «Включить все». Кастомные группы: переименовать /
+ *   удалить (удаление переносит правила в Стандартную — см. RulesViewModel.deleteGroup) /
+ *   добавить правило. Пункты вкл/выкл действуют на СВОЮ группу (а не на раскрытую).
  */
 @Composable
 private fun GroupHeaderCard(
@@ -659,6 +667,12 @@ private fun GroupHeaderCard(
     onAddRule: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    // ИИ-комментарий: вкл/выкл всех правил ЭТОЙ группы из её подменю (пункты ниже
+    // «Добавить правило сюда»; действуют на группу меню, а не на раскрытую).
+    onEnableAll: () -> Unit = {},
+    onDisableAll: () -> Unit = {},
+    canEnable: Boolean = false,
+    canDisable: Boolean = false,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     Card(
@@ -707,6 +721,21 @@ private fun GroupHeaderCard(
                             onAddRule()
                         },
                     )
+                    DropdownMenuItem(
+                        text = { Text("Выключить все") },
+                        onClick = {
+                            showMenu = false
+                            onDisableAll()
+                        },
+                        enabled = canDisable,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Включить все") },
+                        onClick = {
+                            showMenu = false
+                            onEnableAll()
+                        },
+                        enabled = canEnable,
                     )
                     if (!isStandard) {
                         DropdownMenuItem(
