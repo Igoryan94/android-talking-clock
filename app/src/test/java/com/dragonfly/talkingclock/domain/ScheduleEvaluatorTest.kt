@@ -363,4 +363,50 @@ class ScheduleEvaluatorTest {
         )
         assertEquals(setOf(43L), ScheduleEvaluator.expiredOneShotIds(abs(11 * 60), listOf(rule), utc))
     }
+
+    // --- conflict: overlapping rules — the most frequent one wins ---
+
+    @Test
+    fun `overlapping rules header shows the most frequent one`() {
+        // ИИ-комментарий: регрессия требования «конфликт → чаще по времени»: каждые 2 мин
+        // бьют каждые 3 мин независимо от порядка в списке.
+        val every3 = ScheduleRule(id = 50, startMinuteOfDay = 10 * 60, endMinuteOfDay = 11 * 60, intervalMinutes = 3)
+        val every2 = ScheduleRule(id = 51, startMinuteOfDay = 10 * 60, endMinuteOfDay = 11 * 60, intervalMinutes = 2)
+        assertEquals(51L, ScheduleEvaluator.activeRuleAt(abs(10 * 60 + 10), listOf(every3, every2), utc).rule?.id)
+        assertEquals(51L, ScheduleEvaluator.activeRuleAt(abs(10 * 60 + 10), listOf(every2, every3), utc).rule?.id)
+    }
+
+    @Test
+    fun `overlapping rules next trigger comes from the most frequent one`() {
+        val every3 = ScheduleRule(id = 50, startMinuteOfDay = 10 * 60, endMinuteOfDay = 11 * 60, intervalMinutes = 3)
+        val every2 = ScheduleRule(id = 51, startMinuteOfDay = 10 * 60, endMinuteOfDay = 11 * 60, intervalMinutes = 2)
+        val silentFallback = FallbackConfig(silent = true)
+        // 10:01 — тикает только каждые-2 (сетка часа: 10:00, 10:02…); каждые-3 подавлены в перекрытии.
+        val next = ScheduleEvaluator.nextSpeakTrigger(abs(10 * 60), listOf(every3, every2), silentFallback, utc)!!
+        assertEquals(abs(10 * 60 + 2), next.atEpochMinute)
+        assertEquals(51L, next.ruleId)
+    }
+
+    @Test
+    fun `rare rule ticks again after the frequent overlap ends`() {
+        // ИИ-комментарий: подавление действует только внутри перекрытия: частое 10:00–10:10
+        // каждые 2 мин, редкое 10:00–10:30 каждые 7 мин (не сеточное, якорь = start).
+        // Внутри перекрытия тикает частое; после 10:10 редкое продолжает со своего якоря.
+        val frequent = ScheduleRule(id = 52, startMinuteOfDay = 10 * 60, endMinuteOfDay = 10 * 60 + 10, intervalMinutes = 2)
+        val rare = ScheduleRule(id = 53, startMinuteOfDay = 10 * 60, endMinuteOfDay = 10 * 60 + 30, intervalMinutes = 7)
+        val silentFallback = FallbackConfig(silent = true)
+        val inside = ScheduleEvaluator.nextSpeakTrigger(abs(10 * 60), listOf(rare, frequent), silentFallback, utc)!!
+        assertEquals(52L, inside.ruleId)
+        val after = ScheduleEvaluator.nextSpeakTrigger(abs(10 * 60 + 10), listOf(rare, frequent), silentFallback, utc)!!
+        assertEquals(53L, after.ruleId)
+    }
+
+    @Test
+    fun `silent does not suppress speaking in conflict`() {
+        // ИИ-комментарий: silent в конфликте не участвует — говорящее внутри молчания тикает.
+        val silent = ScheduleRule(id = 54, startMinuteOfDay = 10 * 60, endMinuteOfDay = 11 * 60, silent = true, intervalMinutes = 1)
+        val speaking = ScheduleRule(id = 55, startMinuteOfDay = 10 * 60, endMinuteOfDay = 11 * 60, intervalMinutes = 5)
+        val next = ScheduleEvaluator.nextSpeakTrigger(abs(10 * 60), listOf(silent, speaking), FallbackConfig(silent = true), utc)!!
+        assertEquals(55L, next.ruleId)
+    }
 }

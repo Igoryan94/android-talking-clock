@@ -28,7 +28,14 @@ private fun floorDiv(a: Long, b: Long): Long {
  *  - Enabled rules (including silent ones) mark time as "covered" — the fallback only ticks in
  *    uncovered gaps.
  *  - Silent rules and silent fallback produce no ticks.
- *  - When several candidates fall on the same minute, rule with lower list index wins over fallback.
+ *  - ИИ-комментарий (конфликт перекрывающихся правил): когда несколько ВКЛЮЧЁННЫХ говорящих
+ *    (не silent) правил покрывают одну и ту же минуту, задействуется ТОЛЬКО самое частое —
+ *    с наименьшим intervalMinutes (пример: каждые 2 мин бьёт каждые 3 мин). При равенстве
+ *    интервалов побеждает первое по порядку списка (legacy-поведение). Молчащие (silent)
+ *    правила в конфликте НЕ участвуют: они не подавляют говорящие и не подавляются
+ *    (вложенное говорящее внутри молчания по-прежнему тикает — см. тест
+ *    `silent rule suppresses fallback coverage but not other rules`). Группы правил
+ *    (RuleGroup) на конфликт не влияют — все enabled-правила из всех групп равноправны.
  */
 object ScheduleEvaluator {
 
@@ -45,8 +52,14 @@ object ScheduleEvaluator {
     )
 
     /**
-     * The rule whose [start, end) range contains [nowEpochMinute] (first in list order wins),
-     * or fallback when no rule covers the moment. Disabled and whole-day-empty rules are ignored.
+     * The rule governing [nowEpochMinute]: among enabled rules covering the moment, the most
+     * frequent speaking rule wins (smallest interval; ties → first in list); when only silent
+     * rules cover it, the first silent wins; otherwise fallback. Disabled and whole-day-empty
+     * rules are ignored.
+     *
+     * ИИ-комментарий: раньше побеждало просто первое по списку; теперь среди перекрывающихся
+     * говорящих побеждает самое частое (требование «конфликт → чаще по времени»). Silent-ветка
+     * оставлена first-wins, т.к. у молчания частота не имеет смысла, а шапка показывает диапазон.
      */
     fun activeRuleAt(
         nowEpochMinute: Long,
@@ -55,12 +68,35 @@ object ScheduleEvaluator {
     ): ActiveCoverage {
         val enabled = rules.filter { it.enabled && !it.coversWholeDay }
         val today = Instant.ofEpochSecond(nowEpochMinute * 60).atZone(zone).toLocalDate()
+        // ИИ-комментарий: собираем ВСЕ покрывающие правила (а не первое), затем выбираем
+        // победителя по правилу частоты. Проверяем вхождения вчера+сегодня, чтобы покрыть
+        // диапазоны через полночь.
+        var firstSilent: ScheduleRule? = null
+        var bestSpeaking: ScheduleRule? = null
         for (rule in enabled) {
+            var covers = false
             for (d in listOf(today.minusDays(1), today)) {
                 val (s, e) = occurrenceOn(d, zone, rule)
-                if (nowEpochMinute in s until e) return ActiveCoverage(rule, isFallback = false)
+                if (nowEpochMinute in s until e) {
+                    covers = true
+                    break
+                }
+            }
+            if (!covers) continue
+            if (rule.silent) {
+                if (firstSilent == null) firstSilent = rule
+            } else {
+                if (bestSpeaking == null ||
+                    rule.intervalMinutes < bestSpeaking.intervalMinutes
+                ) {
+                    bestSpeaking = rule
+                }
+                // ИИ-комментарий: при равном интервале оставляем раннее (first-wins) — ветка
+                // `rule.intervalMinutes < best` строго меньше, поэтому ties не перезаписывают.
             }
         }
+        if (bestSpeaking != null) return ActiveCoverage(bestSpeaking, isFallback = false)
+        if (firstSilent != null) return ActiveCoverage(firstSilent, isFallback = false)
         return ActiveCoverage(rule = null, isFallback = true)
     }
 
@@ -139,14 +175,29 @@ object ScheduleEvaluator {
 
         val candidates = mutableListOf<Candidate>()
 
-        // Rule ticks
-        for ((index, rule) in enabled.withIndex()) {
-            if (rule.silent) continue
+        // ИИ-комментарий: говорящие enabled-правила с их порядковым индексом (для tie-break
+        // при равном интервале). Silent сюда не входят — они не тикают и никого не подавляют.
+        val speaking = enabled.withIndex().filter { !it.value.silent }
+
+        // Rule ticks — с подавлением менее частых в зоне перекрытия (см. losesConflictAt).
+        for ((index, rule) in speaking) {
             for (d in days) {
                 val (occStart, occEnd) = occurrenceOn(d, zone, rule)
-                val tick = nextTickIn(nowEpochMinute, occStart, occEnd, rule.intervalMinutes, zone)
+                // ИИ-комментарий: берём не просто ближайший тик, а ближайший НЕПОДАВЛЕННЫЙ:
+                // если ближайший тик попадает в перекрытие с более частым правилом, ищем
+                // следующий тик того же вхождения (циклом), иначе редкое правило «съедало» бы
+                // очередь неверно (пропадало бы совсем вместо сдвига на свой следующий тик).
+                val tick = nextUnsuppressedTickIn(
+                    now = nowEpochMinute,
+                    start = occStart,
+                    end = occEnd,
+                    rule = rule,
+                    ruleIndex = index,
+                    speaking = speaking,
+                    zone = zone,
+                )
                 if (tick != null) {
-                    candidates += Candidate(tick, index, rule.id, isFallback = false)
+                    candidates += Candidate(tick, index, rule.id, isFallback = false, interval = rule.intervalMinutes)
                 }
             }
         }
@@ -168,15 +219,74 @@ object ScheduleEvaluator {
                 if (gap.last <= nowEpochMinute) continue
                 val tick = nextTickIn(nowEpochMinute, gap.first, gap.last + 1, fallback.intervalMinutes, zone)
                 if (tick != null) {
-                    candidates += Candidate(tick, index = Int.MAX_VALUE, ruleId = null, isFallback = true)
+                    candidates += Candidate(tick, index = Int.MAX_VALUE, ruleId = null, isFallback = true, interval = Int.MAX_VALUE)
                 }
             }
         }
 
+        // ИИ-комментарий: финальный tie-break учитывает и частоту (на случай, если два
+        // неподавленных тика всё же совпали на одной минуте — побеждает частое, затем раннее).
         return candidates
-            .sortedWith(compareBy({ it.at }, { it.isFallback }, { it.index }))
+            .sortedWith(compareBy({ it.at }, { it.isFallback }, { it.interval }, { it.index }))
             .firstOrNull()
             ?.let { NextSpeak(it.at, it.ruleId, it.isFallback) }
+    }
+
+    /**
+     * ИИ-комментарий: true, когда тик [tick] правила [rule] (с порядком [ruleIndex]) должен быть
+     * подавлен конфликтом: существует ДРУГОЕ включённое говорящее правило, которое тоже покрывает
+     * минуту [tick] и при этом (а) чаще (меньший intervalMinutes) либо (б) с тем же интервалом,
+     * но раньше по списку. Молчащие правила игнорируются (не подавляют). Проверка покрытия —
+     * через вхождения вчера/сегодня/завтра, чтобы корректно ловить диапазоны через полночь.
+     */
+    private fun losesConflictAt(
+        tick: Long,
+        rule: ScheduleRule,
+        ruleIndex: Int,
+        speaking: List<IndexedValue<ScheduleRule>>,
+        zone: ZoneId,
+    ): Boolean {
+        val tickDate = Instant.ofEpochSecond(tick * 60).atZone(zone).toLocalDate()
+        for ((otherIndex, other) in speaking) {
+            if (other.id == rule.id) continue
+            // Частое бьёт редкое; при равном интервале — раннее по списку бьёт позднее.
+            val beats =
+                other.intervalMinutes < rule.intervalMinutes ||
+                    (other.intervalMinutes == rule.intervalMinutes && otherIndex < ruleIndex)
+            if (!beats) continue
+            for (d in listOf(tickDate.minusDays(1), tickDate, tickDate.plusDays(1))) {
+                val (s, e) = occurrenceOn(d, zone, other)
+                if (tick in s until e) return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * ИИ-комментарий: ближайший тик вхождения [start, end) строго после [now], который НЕ
+     * подавлен конфликтом (см. [losesConflictAt]). Перебирает тики вхождения по порядку
+     * (через [nextTickIn] цепочкой), пока не найдёт неподавленный или вхождение не кончится.
+     * Цикл ограничен длиной вхождения (<=1440 итераций для минутных), правила короткие —
+     * производительность не страдает (правил мало, вхождений 3 дня).
+     */
+    private fun nextUnsuppressedTickIn(
+        now: Long,
+        start: Long,
+        end: Long,
+        rule: ScheduleRule,
+        ruleIndex: Int,
+        speaking: List<IndexedValue<ScheduleRule>>,
+        zone: ZoneId,
+    ): Long? {
+        var cursor = now
+        while (true) {
+            val tick = nextTickIn(cursor, start, end, rule.intervalMinutes, zone) ?: return null
+            if (!losesConflictAt(tick, rule, ruleIndex, speaking, zone)) return tick
+            cursor = tick
+            // ИИ-комментарий: защита от бесконечного цикла — тик обязан расти (nextTickIn даёт
+            // строго > cursor), а выход — когда тик упёрся в end (null выше).
+            if (cursor >= end) return null
+        }
     }
 
     /** True when ticks of [intervalMinutes] stick to a strict wall-clock grid. */
@@ -268,6 +378,9 @@ object ScheduleEvaluator {
         val index: Int,
         val ruleId: Long?,
         val isFallback: Boolean,
+        // ИИ-комментарий: интервал нужен для финального tie-break «частое бьёт редкое»,
+        // когда два неподавленных тика совпали (fallback = MAX, всегда проигрывает правилам).
+        val interval: Int = Int.MAX_VALUE,
     )
 
     const val MINUTES_PER_DAY = 1440L
