@@ -88,6 +88,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -121,7 +122,14 @@ private fun ruleColor(index: Int) = rulePalette[index % rulePalette.size]
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RulesScreen(viewModel: RulesViewModel = hiltViewModel()) {
+fun RulesScreen(
+    viewModel: RulesViewModel = hiltViewModel(),
+    // ИИ-комментарий: запрос проскроллить список к пункту «Вне правил» (карточка fallback).
+    // Источник — кнопка «Правила озвучки» на Главной (TalkClockRoot инкрементит счётчик при
+    // переходе). 0 = запроса не было; каждое нажатие +1. RulesScreen при изменении токена
+    // скроллит LazyColumn к индексу fallback-карточки (см. fallbackIndex ниже).
+    scrollToFallbackToken: Int = 0,
+) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<ScheduleRule?>(null) }
     // ИИ-комментарий: в какую группу создаём новое правило (null = диалог закрыт).
@@ -171,6 +179,20 @@ fun RulesScreen(viewModel: RulesViewModel = hiltViewModel()) {
     // кнопки disabled (будто правил нет — требование задачи).
     val openGroupRules: List<ScheduleRule> = remember(rulesByGroup, expandedGroupId) {
         expandedGroupId?.let { rulesByGroup[it] } ?: emptyList()
+    }
+    // ИИ-комментарий: индекс fallback-карточки в LazyColumn: timeline(0) + заголовок(1) +
+    // шапки групп + видимые (раскрытые) правила. Пересчитывается при каждом запросе скролла,
+    // т.к. зависит от раскрытости. Скролл запускаем с небольшой задержкой, чтобы pager успел
+    // доехать до страницы Правил (иначе animateScrollToItem стартует на невидимом списке).
+    LaunchedEffect(scrollToFallbackToken) {
+        if (scrollToFallbackToken > 0 && s != null) {
+            delay(350)
+            var fallbackIndex = 2 + displayGroups.size
+            for (g in displayGroups) {
+                if (expandedGroupId == g.id) fallbackIndex += (rulesByGroup[g.id]?.size ?: 0)
+            }
+            runCatching { listState.animateScrollToItem(fallbackIndex) }
+        }
     }
     Scaffold(
         floatingActionButton = {
@@ -922,7 +944,9 @@ private fun RuleCard(
 
 @Composable
 private fun FallbackCard(fallback: FallbackConfig, onChange: (FallbackConfig) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+    // ИИ-комментарий: testTag нужен для автоскролла-проверки и будущей UI-верификации:
+    // кнопка «Правила озвучки» на Главной скроллит список именно к этой карточке.
+    Card(Modifier.fillMaxWidth().testTag("fallback_card")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Вне правил", style = MaterialTheme.typography.titleMedium)
             Text(

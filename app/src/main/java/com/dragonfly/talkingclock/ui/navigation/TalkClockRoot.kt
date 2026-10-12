@@ -1,7 +1,9 @@
 package com.dragonfly.talkingclock.ui.navigation
 
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Rule
 import androidx.compose.material.icons.filled.GraphicEq
@@ -13,21 +15,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
 import com.dragonfly.talkingclock.ui.home.HomeScreen
 import com.dragonfly.talkingclock.ui.rules.RulesScreen
 import com.dragonfly.talkingclock.ui.settings.TtsSettingsScreen
-import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 private data class TopDestination(val route: String, val label: String, val icon: ImageVector)
 
@@ -37,48 +34,31 @@ private val destinations = listOf(
     TopDestination("tts", "Голос", Icons.Filled.GraphicEq),
 )
 
-/** Single navigation entry point: every transition to a top destination behaves identically. */
-private fun NavHostController.navigateToTopDestination(route: String) {
-    navigate(route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
-    }
-}
-
-private fun Modifier.tabSwipeNavigation(
-    thresholdPx: Float,
-    onSwipeLeft: () -> Unit,
-    onSwipeRight: () -> Unit,
-): Modifier = pointerInput(Unit) {
-    var total = 0f
-    detectHorizontalDragGestures(
-        onHorizontalDrag = { _, amount -> total += amount },
-        onDragEnd = {
-            if (abs(total) >= thresholdPx) {
-                if (total < 0) onSwipeLeft() else onSwipeRight()
-            }
-            total = 0f
-        },
-        onDragCancel = { total = 0f },
-    )
-}
-
+/**
+ * Три вкладки — один [HorizontalPager]: свайпы обрабатывает сам pager через nested scroll,
+ * поэтому они работают поверх вертикальных списков (в отличие от ручного
+ * `detectHorizontalDragGestures`, который глох на скроллах, слайдерах и карточках).
+ * Нижняя панель и свайп идут через общий `pagerState`, `beyondViewportPageCount=2`
+ * держит все 3 страницы живыми (состояние скроллов/полей не сбрасывается).
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TalkClockRoot() {
-    val navController = rememberNavController()
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
-    val currentIndex = destinations.indexOfFirst { it.route == currentRoute }
-    val thresholdPx = with(LocalDensity.current) { 60.dp.toPx() }
+    val pagerState = rememberPagerState(pageCount = { destinations.size })
+    val scope = rememberCoroutineScope()
+    // ИИ-комментарий (требование «кнопка на Главной ведёт сразу к пункту вне правил»):
+    // счётчик запросов на скролл к FallbackCard. Кнопка «Правила озвучки» на Главной делает
+    // +1 и листает pager на вкладку Правил; RulesScreen при изменении токена скроллит
+    // LazyColumn к карточке «Вне правил». rememberSaveable — переживает поворот.
+    var scrollToFallbackToken by rememberSaveable { mutableIntStateOf(0) }
 
     Scaffold(
         bottomBar = {
             NavigationBar {
-                destinations.forEach { dest ->
+                destinations.forEachIndexed { index, dest ->
                     NavigationBarItem(
-                        selected = currentRoute == dest.route,
-                        onClick = { navController.navigateToTopDestination(dest.route) },
+                        selected = pagerState.currentPage == index,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                         icon = { Icon(dest.icon, contentDescription = dest.label) },
                         label = { Text(dest.label) },
                     )
@@ -86,30 +66,23 @@ fun TalkClockRoot() {
             }
         },
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier
-                .padding(padding)
-                .tabSwipeNavigation(
-                    thresholdPx = thresholdPx,
-                    onSwipeLeft = {
-                        destinations.getOrNull(currentIndex + 1)?.let { dest ->
-                            navController.navigateToTopDestination(dest.route)
-                        }
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.padding(padding),
+            beyondViewportPageCount = 2,
+        ) { page ->
+            when (destinations[page].route) {
+                "home" -> HomeScreen(
+                    // ИИ-комментарий: переход к правилам СРАЗУ к пункту «вне правил»: сначала
+                    // инкремент токена скролла, затем анимация pager на страницу Правил.
+                    onOpenRules = {
+                        scrollToFallbackToken += 1
+                        scope.launch { pagerState.animateScrollToPage(1) }
                     },
-                    onSwipeRight = {
-                        destinations.getOrNull(currentIndex - 1)?.let { dest ->
-                            navController.navigateToTopDestination(dest.route)
-                        }
-                    },
-                ),
-        ) {
-            composable("home") {
-                HomeScreen(onOpenRules = { navController.navigateToTopDestination("rules") })
+                )
+                "rules" -> RulesScreen(scrollToFallbackToken = scrollToFallbackToken)
+                "tts" -> TtsSettingsScreen()
             }
-            composable("rules") { RulesScreen() }
-            composable("tts") { TtsSettingsScreen() }
         }
     }
 }
