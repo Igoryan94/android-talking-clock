@@ -32,6 +32,15 @@ data class ScheduleRule(
      * `0` = unknown (legacy) — falls back to the current-day occurrence.
      */
     val oneShotAnchorMinute: Long = 0L,
+    /**
+     * ИИ-комментарий: принадлежность правила к именованной группе (аккордеон на экране Правил).
+     * Хранится как id группы из [AppSettings.ruleGroups]; `0` = виртуальная неудаляемая
+     * «Стандартная» группа (см. [STANDARD_GROUP_ID]). Legacy-JSON без поля парсится как 0,
+     * поэтому все старые правила автоматически оказываются в Стандартной без миграции.
+     * Свернутость/развернутость групп — чисто UI-состояние (не хранится), планировщик
+     * [ScheduleEvaluator] видит ВСЕ enabled-правила независимо от группы и свернутости.
+     */
+    val groupId: Long = STANDARD_GROUP_ID,
 ) {
     val crossesMidnight: Boolean get() = endMinuteOfDay < startMinuteOfDay
     val coversWholeDay: Boolean get() = startMinuteOfDay == 0 && endMinuteOfDay == 0
@@ -76,6 +85,39 @@ data class FallbackConfig(
 )
 
 /**
+ * ИИ-комментарий: именованная группа правил (аккордеон на экране Правил).
+ * - Группа — только визуальный контейнер + способ сортировки: на озвучку не влияет,
+ *   планировщик учитывает все enabled-правила из всех групп одинаково.
+ * - «Стандартная» группа НЕ хранится в DataStore: она виртуальная ([STANDARD_GROUP_ID]=0,
+ *   [STANDARD_GROUP_NAME]), всегда существует и не может быть удалена. Все правила без группы
+ *   (legacy) принадлежат ей.
+ * - Кастомные группы хранятся в [AppSettings.ruleGroups] (DataStore JSON `rule_groups_json`).
+ * - Свернутость: по требованию все группы по дефолту скрыты (свернуты), открыта максимум одна.
+ *   Это чисто UI-состояние `expandedGroupId` в RulesScreen (rememberSaveable, дефолт null =
+ *   все свернуты); при открытии одной группы остальные закрываются (аккордеон).
+ */
+data class RuleGroup(
+    val id: Long,
+    val name: String,
+)
+
+/** ИИ-комментарий: id виртуальной неудаляемой группы «Стандартная». Правила с groupId=0 — в ней. */
+const val STANDARD_GROUP_ID: Long = 0L
+
+/** ИИ-комментарий: отображаемое имя виртуальной группы. Не хранится, захардкожено. */
+const val STANDARD_GROUP_NAME: String = "Стандартная"
+
+/**
+ * ИИ-комментарий: эффективная группа правила (единая логика для UI и ViewModel).
+ * Правила, чья groupId ссылается на несуществующую (удалённую) группу, показываются
+ * и обрабатываются как правила «Стандартной» — без потери озвучки и без миграции данных.
+ * Планировщик (ScheduleEvaluator) группы игнорирует вовсе: ему важен только enabled/диапазон.
+ */
+fun effectiveGroupId(rawGroupId: Long, groups: List<RuleGroup>): Long =
+    if (rawGroupId == STANDARD_GROUP_ID || groups.any { it.id == rawGroupId }) rawGroupId
+    else STANDARD_GROUP_ID
+
+/**
  * Temporary forced minimum volume: while enabled (for [durationMinutes] since [armedAtEpochMinute]),
  * any below-threshold MEDIA/NOTIFICATION stream is raised to [thresholdPercent] just for the
  * duration of the announcement, then restored.
@@ -97,4 +139,9 @@ data class AppSettings(
     val fallback: FallbackConfig = FallbackConfig(),
     val announceMissed: Boolean = true,
     val volumeGuard: VolumeGuardConfig = VolumeGuardConfig(),
+    /**
+     * ИИ-комментарий: кастомные (пользовательские) группы правил. «Стандартная» сюда НЕ входит —
+     * она виртуальная и дорисовывается UI поверх этого списка. Пустой список = только Стандартная.
+     */
+    val ruleGroups: List<RuleGroup> = emptyList(),
 )

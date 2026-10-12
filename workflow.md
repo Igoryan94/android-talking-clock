@@ -16,6 +16,7 @@
 - Порог громкости: `VolumeGuardConfig` в `AppSettings` (DataStore prefs `volume_guard_*`); `speech/VolumeGuard.kt` поднимает STREAM_MUSIC+STREAM_NOTIFICATION ниже порога на время озвучки и возвращает; авто-выкл по истечении срока — в `AlarmScheduler.reschedule()`.
 - ColorOS/Realme игнорирует `setStreamVolume` из фона (в dumpsys нет записи `from com.dragonfly.talkingclock`; есть `AudioHardening`). Поэтому `VolumeGuard` верифицирует результат `getStreamVolume`, ретраит 3× и фолбэчится `adjustStreamVolume(ADJUST_RAISE)`; всё на main-треде; восстановление под `NonCancellable`. Требует `MODIFY_AUDIO_SETTINGS`. Диагностика фактического срабатывания — в diag.log (`MEDIA: 0 -> 30 (raised=...)`).
 - Логи фона: `DiagLogger` пишет в `files/diag.log` — ColorOS на устройстве прячет logcat сторонних приложений, diag-файл читается через `run-as`.
+- Групповые действия: кнопки вкл/выкл действуют только на открытую группу (`RulesViewModel.setGroupRulesEnabled`, без открытой — disabled); подменю каждой группы содержит «Добавить правило сюда», «Выключить все», «Включить все» (+ переименовать/удалить для кастомных) — действуют на свою группу; единый хелпер `data.effectiveGroupId(raw, groups)` (битые ссылки → Стандартная) для UI и ViewModel. Массовое перемещение: `RulesViewModel.moveRulesToGroup(ids, groupId)` + `GroupPickerDialog` (пункт «В группу…» в панели выбора); после переноса целевая группа раскрывается.
 
 ## Running And Logs
 - Устройство: Realme/ColorOS, adb wireless `10.45.227.133:5555` (если пусто — скрипт `C:\Users\Igor\Desktop\ADB-connect.ps1`).

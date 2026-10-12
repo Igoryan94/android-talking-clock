@@ -34,6 +34,9 @@ class SettingsRepository @Inject constructor(
         val REGEX = stringPreferencesKey("tts_regex")
         val REGEX_REPL = stringPreferencesKey("tts_regex_replacement")
         val RULES = stringPreferencesKey("rules_json")
+        // ИИ-комментарий: JSON именованных групп правил (без виртуальной «Стандартной»).
+        // Отсутствие ключа (legacy-установки) = только Стандартная.
+        val RULE_GROUPS = stringPreferencesKey("rule_groups_json")
         val FB_SILENT = booleanPreferencesKey("fallback_silent")
         val FB_INTERVAL = intPreferencesKey("fallback_interval")
         val MISSED_ANNOUNCE = booleanPreferencesKey("missed_announce")
@@ -87,6 +90,10 @@ class SettingsRepository @Inject constructor(
             regexReplacement = prefs[Keys.REGEX_REPL] ?: "",
         ),
         rules = prefs[Keys.RULES]?.let(::parseRules) ?: emptyList(),
+        // ИИ-комментарий: группы правил; legacy (ключа нет) → пусто = только «Стандартная».
+        // Правила, чья groupId ссылается на несуществующую группу, UI показывает в Стандартной
+        // (см. RulesScreen.effectiveGroupId), планировщик их всё равно учитывает.
+        ruleGroups = prefs[Keys.RULE_GROUPS]?.let(::parseGroups) ?: emptyList(),
         fallback = FallbackConfig(
             silent = prefs[Keys.FB_SILENT] ?: false,
             intervalMinutes = (prefs[Keys.FB_INTERVAL] ?: 5).coerceIn(1, 24 * 60),
@@ -111,6 +118,9 @@ class SettingsRepository @Inject constructor(
         prefs[Keys.REGEX] = s.tts.regexPattern
         prefs[Keys.REGEX_REPL] = s.tts.regexReplacement
         prefs[Keys.RULES] = serializeRules(s.rules)
+        // ИИ-комментарий: пишем группы отдельным ключом; Стандартная (id=0) сериализатором
+        // отфильтровывается и никогда не попадает в DataStore.
+        prefs[Keys.RULE_GROUPS] = serializeGroups(s.ruleGroups)
         prefs[Keys.FB_SILENT] = s.fallback.silent
         prefs[Keys.FB_INTERVAL] = s.fallback.intervalMinutes
         prefs[Keys.MISSED_ANNOUNCE] = s.announceMissed

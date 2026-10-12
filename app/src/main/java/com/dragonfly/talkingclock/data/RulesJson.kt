@@ -17,6 +17,27 @@ internal fun serializeRules(rules: List<ScheduleRule>): String {
                 put("silent", r.silent)
                 put("oneShot", r.oneShot)
                 if (r.oneShotAnchorMinute > 0L) put("oneShotAnchor", r.oneShotAnchorMinute)
+                // ИИ-комментарий: groupId пишем только для нестандартных групп (>0), чтобы legacy-JSON
+                // оставался компактным; отсутствие ключа при парсинге = Стандартная (0).
+                if (r.groupId != STANDARD_GROUP_ID) put("groupId", r.groupId)
+            }
+        )
+    }
+    return arr.toString()
+}
+
+/**
+ * ИИ-комментарий: сериализация именованных групп правил в JSON для DataStore
+ * (`rule_groups_json`). Стандартная группа (id=0) сюда никогда не пишется — она виртуальная.
+ */
+internal fun serializeGroups(groups: List<RuleGroup>): String {
+    val arr = JSONArray()
+    for (g in groups) {
+        if (g.id == STANDARD_GROUP_ID) continue
+        arr.put(
+            JSONObject().apply {
+                put("id", g.id)
+                put("name", g.name)
             }
         )
     }
@@ -38,6 +59,24 @@ internal fun parseRules(json: String): List<ScheduleRule> = runCatching {
             // Legacy rules stored before the one-shot feature must keep repeating forever.
             oneShot = o.optBoolean("oneShot", false),
             oneShotAnchorMinute = o.optLong("oneShotAnchor", 0L),
+            // ИИ-комментарий: legacy-JSON без ключа groupId → Стандартная (0), без миграции.
+            groupId = o.optLong("groupId", STANDARD_GROUP_ID),
         )
+    }
+}.getOrDefault(emptyList())
+
+/**
+ * ИИ-комментарий: парсинг групп из DataStore JSON; битый ввод → пустой список
+ * (остаётся только виртуальная Стандартная). Пустые имена отбрасываются.
+ */
+internal fun parseGroups(json: String): List<RuleGroup> = runCatching {
+    val arr = JSONArray(json)
+    (0 until arr.length()).mapNotNull { i ->
+        val o = arr.getJSONObject(i)
+        val id = o.getLong("id")
+        if (id == STANDARD_GROUP_ID) return@mapNotNull null
+        val name = o.optString("name", "").trim()
+        if (name.isEmpty()) return@mapNotNull null
+        RuleGroup(id = id, name = name)
     }
 }.getOrDefault(emptyList())

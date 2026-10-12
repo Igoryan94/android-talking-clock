@@ -58,4 +58,25 @@ class RulesJsonTest {
         )
         assertEquals(0L, legacy[0].oneShotAnchorMinute)
     }
+
+    @Test
+    fun `rule groupId round trips and legacy parses as standard`() {
+        // ИИ-комментарий: groupId пишется только для нестандартных групп; legacy без ключа → 0.
+        val grouped = ScheduleRule(id = 6, startMinuteOfDay = 100, endMinuteOfDay = 200, groupId = 999L)
+        assertEquals(grouped, parseRules(serializeRules(listOf(grouped)))[0])
+        val standard = ScheduleRule(id = 7, startMinuteOfDay = 100, endMinuteOfDay = 200, groupId = 0L)
+        val parsed = parseRules(serializeRules(listOf(standard)))[0]
+        assertEquals(0L, parsed.groupId)
+        val legacy = parseRules("[{\"id\":8,\"enabled\":true,\"start\":100,\"end\":200,\"interval\":5}]")
+        assertEquals(0L, legacy[0].groupId)
+    }
+
+    @Test
+    fun `groups round trip and malformed yields empty`() {
+        // ИИ-комментарий: Стандартная (id=0) никогда не сериализуется; битый JSON → только Стандартная.
+        val groups = listOf(RuleGroup(id = 11, name = "Утро"), RuleGroup(id = 12, name = "Ночь"))
+        assertEquals(groups, parseGroups(serializeGroups(groups)))
+        assertEquals(emptyList<RuleGroup>(), parseGroups(serializeGroups(listOf(RuleGroup(0L, "Стандартная")))))
+        assertEquals(emptyList<RuleGroup>(), parseGroups("not json"))
+    }
 }
