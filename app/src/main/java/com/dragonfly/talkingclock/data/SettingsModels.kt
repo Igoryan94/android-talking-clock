@@ -110,6 +110,27 @@ const val STANDARD_GROUP_ID: Long = 0L
 const val STANDARD_GROUP_NAME: String = "Стандартная"
 
 /**
+ * ИИ-комментарий: умный старт нового правила.
+ * Если есть хоть одно включённое правило (кроме «весь день») — предлагаем старт с конца
+ * всего ряда активных (максимальный endMinuteOfDay среди enabled). Иначе — текущее время.
+ * Длина по умолчанию 30 мин; конец считается по модулю суток (переход через полночь).
+ */
+fun suggestNewRuleStart(rules: List<ScheduleRule>, nowMinute: Int): Int {
+    val ends = rules.filter { it.enabled && !it.coversWholeDay }.map { it.endMinuteOfDay }
+    if (ends.isEmpty()) return nowMinute
+    return ends.max()
+}
+
+/** ИИ-комментарий: пара (старт, конец) для нового правила длиной [lengthMinutes] (дефолт 30). */
+fun suggestNewRuleRange(
+    rules: List<ScheduleRule>,
+    nowMinute: Int,
+    lengthMinutes: Int = 30,
+): Pair<Int, Int> {
+    val start = suggestNewRuleStart(rules, nowMinute)
+    return start to (start + lengthMinutes) % 1440
+}
+/**
  * ИИ-комментарий: эффективная группа правила (единая логика для UI и ViewModel).
  * Правила, чья groupId ссылается на несуществующую (удалённую) группу, показываются
  * и обрабатываются как правила «Стандартной» — без потери озвучки и без миграции данных.

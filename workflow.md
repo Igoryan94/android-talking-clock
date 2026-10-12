@@ -10,7 +10,7 @@
 - Списки чипов в карточках: FlowRow (ExperimentalLayoutApi), Row обрезается без скролла.
 - Все фоновые правки проходят через `SchedulingCoordinator.apply()` → `AlarmScheduler.reschedule()`; ресивер после каждой озвучки перепланируется сам.
 - Одноразовые правила (в т.ч. молчание): живут весь период [start,end) и удаляются через минуту после его конца, НЕ после первого срабатывания. `ScheduleEvaluator.expiredOneShotIds/nextOneShotExpiry`; `AlarmScheduler` чистит протухшие и ставит отдельный cleanup-будильник (requestCode 4002, extra `cleanup_only`), `SpeakAlarmReceiver` по нему только вызывает `reschedule()`.
-- Новое правило по умолчанию: начало = текущее время, конец = +30 мин.
+- Новое правило по умолчанию: старт = конец ряда активных (max end среди enabled-правил), при всех выключенных — текущее время; конец = +30 мин (`data.suggestNewRuleStart/suggestNewRuleRange`, тест `SuggestNewRuleStartTest`).
 - Контекстное меню карточки правила (long-press): «Раздвоить», «Дублировать» (копия с `oneShot = true` и якорем = сейчас), «Объединить…».
 - Одноразовое правило: якорь создания `oneShotAnchorMinute` (0=legacy); цель удаления = первое вхождение с концом строго после якоря + 1 мин. В JSON ключ пишется только при >0.
 - Порог громкости: `VolumeGuardConfig` в `AppSettings` (DataStore prefs `volume_guard_*`); `speech/VolumeGuard.kt` поднимает STREAM_MUSIC+STREAM_NOTIFICATION ниже порога на время озвучки и возвращает; авто-выкл по истечении срока — в `AlarmScheduler.reschedule()`.

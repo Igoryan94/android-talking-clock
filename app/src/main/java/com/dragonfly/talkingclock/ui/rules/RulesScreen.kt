@@ -99,6 +99,7 @@ import com.dragonfly.talkingclock.data.STANDARD_GROUP_ID
 import com.dragonfly.talkingclock.data.STANDARD_GROUP_NAME
 import com.dragonfly.talkingclock.data.ScheduleRule
 import com.dragonfly.talkingclock.data.effectiveGroupId
+import com.dragonfly.talkingclock.data.suggestNewRuleRange
 import com.dragonfly.talkingclock.ui.common.intervalGridHint
 import com.dragonfly.talkingclock.ui.common.intervalText
 import com.dragonfly.talkingclock.ui.common.minuteToText
@@ -399,13 +400,19 @@ fun RulesScreen(
         }
     }
 
-        val nowMinute = LocalTime.now().let { it.hour * 60 + it.minute }
     creatingInGroup?.let { targetGroup ->
+        // ИИ-комментарий: умный дефолт нового правила — старт с конца ряда активных
+        // (max end среди enabled; при всех выключенных — текущее время), длина 30 мин.
+        // Заморожено remember(targetGroup): считается один раз при открытии диалога.
+        val (suggestedStart, suggestedEnd) = remember(targetGroup) {
+            val nowMinute = LocalTime.now().let { it.hour * 60 + it.minute }
+            suggestNewRuleRange(s?.rules.orEmpty(), nowMinute)
+        }
         RuleEditorDialog(
             initial = ScheduleRule(
                 id = viewModel.newRuleId(),
-                startMinuteOfDay = nowMinute,
-                endMinuteOfDay = (nowMinute + 30) % 1440,
+                startMinuteOfDay = suggestedStart,
+                endMinuteOfDay = suggestedEnd,
                 intervalMinutes = 10,
                 groupId = targetGroup,
             ),
