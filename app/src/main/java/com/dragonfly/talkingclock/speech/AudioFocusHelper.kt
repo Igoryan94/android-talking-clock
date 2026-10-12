@@ -10,9 +10,14 @@ import android.os.Looper
 import com.dragonfly.talkingclock.diag.DiagLogger
 
 /**
- * Transient audio focus for a single utterance: interrupts (pauses) every parallel audio
- * for the few seconds the time is spoken, then releases. Focus loss is logged but never
- * interrupts our own playback — the announcement must be audible.
+ * Transient-may-duck audio focus for a single utterance: parallel audio is only ducked
+ * (volume lowered) for the few seconds the time is spoken, then restored.
+ *
+ * Rationale: `GAIN_TRANSIENT` makes other players pause (LOSS_TRANSIENT) and many of them
+ * never resume on abandon — the reported "music was playing, got paused, never came back"
+ * bug. `MAY_DUCK` keeps their playback running at lowered volume, so there is nothing to
+ * resume. Focus loss is logged but never interrupts our own playback — the announcement
+ * must be audible.
  */
 class AudioFocusHelper(
     context: Context,
@@ -32,14 +37,14 @@ class AudioFocusHelper(
         diag.log(TAG, "focus change: $name")
     }
 
-    /** Requests AUDIOFOCUS_GAIN_TRANSIENT for the given usage. Returns false when declined. */
+    /** Requests AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK for the given usage. Returns false when declined. */
     fun acquire(usage: Int): Boolean {
         val attributes = AudioAttributes.Builder()
             .setUsage(usage)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .build()
         return if (Build.VERSION.SDK_INT >= 26) {
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(attributes)
                 .setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))
                 .build()
@@ -52,7 +57,7 @@ class AudioFocusHelper(
                 AudioManager.STREAM_MUSIC
             }
             @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(listener, stream, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT) ==
+            audioManager.requestAudioFocus(listener, stream, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK) ==
                 AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         }
     }

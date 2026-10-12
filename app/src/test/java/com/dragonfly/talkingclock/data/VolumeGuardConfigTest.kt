@@ -49,4 +49,21 @@ class VolumeGuardConfigTest {
         assertEquals(30, VolumeGuardConfig().thresholdPercent)
         assertEquals(180, VolumeGuardConfig().durationMinutes)
     }
+
+    @Test
+    fun `remaining counts down from the full duration`() {
+        val cfg = VolumeGuardConfig(enabled = true, durationMinutes = 180, armedAtEpochMinute = 1_000L)
+        assertEquals(180L, cfg.remainingMinutes(1_000L))
+        assertEquals(179L, cfg.remainingMinutes(1_001L))
+        assertEquals(1L, cfg.remainingMinutes(1_179L))
+    }
+
+    @Test
+    fun `remaining is zero when expired or inactive`() {
+        val cfg = VolumeGuardConfig(enabled = true, durationMinutes = 180, armedAtEpochMinute = 1_000L)
+        assertEquals(0L, cfg.remainingMinutes(1_180L))
+        assertEquals(0L, cfg.remainingMinutes(2_000L))
+        assertEquals(0L, VolumeGuardConfig().remainingMinutes(1_000L))
+        assertEquals(0L, VolumeGuardConfig(enabled = true, armedAtEpochMinute = 0L).remainingMinutes(1_000L))
+    }
 }

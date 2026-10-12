@@ -14,6 +14,8 @@ data class TtsSettings(
     val timeTemplate: String = "H:mm",
     val regexPattern: String = "",
     val regexReplacement: String = "",
+    /** Запрашивать аудиофокус (приглушение чужого звука) на время озвучки. Дефолт ВКЛ. */
+    val audioFocusEnabled: Boolean = true,
 ) {
     val regexEnabled: Boolean get() = regexPattern.isNotBlank()
 }
@@ -130,6 +132,11 @@ data class VolumeGuardConfig(
 ) {
     fun activeAt(nowEpochMinute: Long): Boolean =
         enabled && armedAtEpochMinute > 0L && nowEpochMinute < armedAtEpochMinute + durationMinutes
+
+    /** Остаток действия в минутах (0 — выкл/якоря нет/срок вышел). Уменьшается сам со временем. */
+    fun remainingMinutes(nowEpochMinute: Long): Long =
+        if (!enabled || armedAtEpochMinute <= 0L) 0L
+        else (armedAtEpochMinute + durationMinutes - nowEpochMinute).coerceAtLeast(0L)
 }
 
 data class AppSettings(

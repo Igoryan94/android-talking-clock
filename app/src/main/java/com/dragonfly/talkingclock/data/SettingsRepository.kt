@@ -33,6 +33,7 @@ class SettingsRepository @Inject constructor(
         val TEMPLATE = stringPreferencesKey("tts_time_template")
         val REGEX = stringPreferencesKey("tts_regex")
         val REGEX_REPL = stringPreferencesKey("tts_regex_replacement")
+        val FOCUS = booleanPreferencesKey("tts_audio_focus")
         val RULES = stringPreferencesKey("rules_json")
         // ИИ-комментарий: JSON именованных групп правил (без виртуальной «Стандартной»).
         // Отсутствие ключа (legacy-установки) = только Стандартная.
@@ -88,6 +89,7 @@ class SettingsRepository @Inject constructor(
             timeTemplate = prefs[Keys.TEMPLATE]?.takeIf { it.isNotBlank() } ?: "H:mm",
             regexPattern = prefs[Keys.REGEX] ?: "",
             regexReplacement = prefs[Keys.REGEX_REPL] ?: "",
+            audioFocusEnabled = prefs[Keys.FOCUS] ?: true,
         ),
         rules = prefs[Keys.RULES]?.let(::parseRules) ?: emptyList(),
         // ИИ-комментарий: группы правил; legacy (ключа нет) → пусто = только «Стандартная».
@@ -117,6 +119,7 @@ class SettingsRepository @Inject constructor(
         prefs[Keys.TEMPLATE] = s.tts.timeTemplate
         prefs[Keys.REGEX] = s.tts.regexPattern
         prefs[Keys.REGEX_REPL] = s.tts.regexReplacement
+        prefs[Keys.FOCUS] = s.tts.audioFocusEnabled
         prefs[Keys.RULES] = serializeRules(s.rules)
         // ИИ-комментарий: пишем группы отдельным ключом; Стандартная (id=0) сериализатором
         // отфильтровывается и никогда не попадает в DataStore.

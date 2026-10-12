@@ -62,15 +62,37 @@ class TtsSettingsViewModel @Inject constructor(
         }
     }
 
+    fun setAudioFocusEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.update { s -> s.copy(tts = s.tts.copy(audioFocusEnabled = enabled)) }
+        }
+    }
+
     fun setVolumeGuardThreshold(percent: Int) {
         viewModelScope.launch {
             repository.update { s -> s.copy(volumeGuard = s.volumeGuard.copy(thresholdPercent = percent.coerceIn(0, 100))) }
         }
     }
 
-    fun setVolumeGuardDuration(minutes: Int) {
+    /**
+     * Sets the remaining guard time from now: expiry becomes now + [minutes].
+     * Non-positive values switch the guard off. Preserves the original arm moment so the
+     * countdown keeps flowing instead of restarting on every slider tick.
+     */
+    fun setVolumeGuardRemaining(minutes: Int) {
         viewModelScope.launch {
-            repository.update { s -> s.copy(volumeGuard = s.volumeGuard.copy(durationMinutes = minutes.coerceIn(1, 24 * 60))) }
+            val now = System.currentTimeMillis() / 60_000L
+            repository.update { s ->
+                val g = s.volumeGuard
+                if (minutes <= 0) {
+                    s.copy(volumeGuard = g.copy(enabled = false, armedAtEpochMinute = 0L))
+                } else if (!g.enabled || g.armedAtEpochMinute <= 0L) {
+                    s.copy(volumeGuard = g.copy(enabled = true, armedAtEpochMinute = now, durationMinutes = minutes.coerceIn(1, 24 * 60)))
+                } else {
+                    val elapsed = (now - g.armedAtEpochMinute).coerceAtLeast(0L)
+                    s.copy(volumeGuard = g.copy(enabled = true, durationMinutes = (elapsed + minutes).coerceIn(1L, 24 * 60).toInt()))
+                }
+            }
         }
     }
 

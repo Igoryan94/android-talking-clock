@@ -28,6 +28,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonfly.talkingclock.data.AudioStream
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,6 +125,29 @@ fun TtsSettingsScreen(viewModel: TtsSettingsViewModel = hiltViewModel()) {
                     onClick = { viewModel.updateTts { it.copy(audioStream = AudioStream.NOTIFICATION) } },
                     shape = SegmentedButtonDefaults.itemShape(1, 2),
                 ) { Text("Уведомления") }
+            }
+        }
+
+        // Audio focus toggle (ducking; default ON)
+        Card(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Аудиофокус", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Приглушает музыку на время озвучки, потом громкость возвращается. Выкл — говорить поверх без вмешательства",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = tts.audioFocusEnabled,
+                    onCheckedChange = viewModel::setAudioFocusEnabled,
+                )
             }
         }
 
@@ -222,6 +250,22 @@ private fun VolumeGuardCard(viewModel: TtsSettingsViewModel) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val s = settings ?: return
     val guard = s.volumeGuard
+    // Тикер обратного отсчёта: остаток уменьшается сам со временем, слайдер привязан к остатку.
+    var nowMinute by remember { mutableStateOf(System.currentTimeMillis() / 60_000L) }
+    LaunchedEffect(guard.enabled, guard.armedAtEpochMinute) {
+        nowMinute = System.currentTimeMillis() / 60_000L
+        while (guard.enabled) {
+            delay(30_000L)
+            nowMinute = System.currentTimeMillis() / 60_000L
+        }
+    }
+    val remaining = guard.remainingMinutes(nowMinute)
+    // Страховка авто-выключения в UI: планировщик тоже гасит guard в reschedule().
+    LaunchedEffect(remaining, guard.enabled, guard.armedAtEpochMinute) {
+        if (guard.enabled && guard.armedAtEpochMinute > 0L && remaining <= 0L) {
+            viewModel.setVolumeGuardEnabled(false)
+        }
+    }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
@@ -246,16 +290,32 @@ private fun VolumeGuardCard(viewModel: TtsSettingsViewModel) {
                     valueRange = 0f..100f,
                     steps = 19,
                 )
-                val hours = guard.durationMinutes / 60
-                Text("Срок действия: ${hours} ч", style = MaterialTheme.typography.bodyMedium)
+                val expiry = Instant.ofEpochMilli(
+                    (guard.armedAtEpochMinute + guard.durationMinutes) * 60_000L
+                ).atZone(ZoneId.systemDefault())
+                val expiryText = DateTimeFormatter.ofPattern("HH:mm").format(expiry)
+                Text(
+                    "Осталось: ${formatRemaining(remaining)} (до $expiryText)",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 Slider(
-                    value = hours.toFloat(),
-                    onValueChange = { v -> viewModel.setVolumeGuardDuration(v.toInt() * 60) },
-                    valueRange = 1f..24f,
-                    steps = 22,
+                    value = remaining.toFloat().coerceIn(1f, 1440f),
+                    onValueChange = { v -> viewModel.setVolumeGuardRemaining(v.toInt()) },
+                    valueRange = 1f..1440f,
                 )
             }
         }
+    }
+}
+
+private fun formatRemaining(minutes: Long): String {
+    if (minutes <= 0L) return "срок вышел"
+    val h = minutes / 60
+    val m = minutes % 60
+    return when {
+        h == 0L -> "$m мин"
+        m == 0L -> "$h ч"
+        else -> "$h ч $m мин"
     }
 }
 

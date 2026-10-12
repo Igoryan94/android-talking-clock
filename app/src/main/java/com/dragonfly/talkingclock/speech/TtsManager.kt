@@ -28,7 +28,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * MultiTTS (and some other engines) occasionally deny playback to one of several concurrent
  * TTS clients: the utterance is queued but never starts. The pipeline therefore:
- *  1. requests transient audio focus (interrupting parallel audio so time is clearly audible);
+ *  1. requests transient-may-duck audio focus (ducking parallel audio so time is clearly
+ *     audible without pausing it; skipped entirely when `audioFocusEnabled` is off);
  *  2. watches for utterance start with a short watchdog;
  *  3. on a hang: retries after stop(), re-initializes the engine client, and finally
  *     falls back to another installed engine so the time is never silently lost.
@@ -117,11 +118,13 @@ class TtsManager @Inject constructor(
         val engine = ensureEngineWithFallback(settings.enginePackage)
             ?: return@withLock false
 
-        val focus = AudioFocusHelper(context, diag)
+        val focus = if (settings.audioFocusEnabled) AudioFocusHelper(context, diag) else null
         val volumeGuard = volumeGuardConfig?.let { VolumeGuard(context, diag) }
         var volumeRestore: (suspend () -> Unit)? = null
         try {
-            if (!focus.acquire(usage)) {
+            if (focus == null) {
+                diag.log(TAG, "audio focus disabled by setting — speaking without focus")
+            } else if (!focus.acquire(usage)) {
                 diag.log(TAG, "audio focus NOT granted — speaking anyway")
             }
             // Raise below-threshold streams only after holding focus, for the announcement only.
@@ -151,7 +154,7 @@ class TtsManager @Inject constructor(
             speakAttempt(fallbackInstance, text, settings, usage) == Outcome.DONE
         } finally {
             volumeRestore?.invoke()
-            focus.release()
+            focus?.release()
         }
     }
 
